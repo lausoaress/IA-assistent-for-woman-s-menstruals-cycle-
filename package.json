@@ -1,0 +1,17 @@
+{
+  "name": "luna-simple",
+  "version": "1.0.0",
+  "description": "Luna chatbot — frontend (CDN React) + backend (Express) — single server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}

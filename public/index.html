@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Luna — Chatbot Menstrual</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      box-sizing: border-box;
+    }
+    .message-user {
+      background: linear-gradient(135deg, #ec4899, #be185d);
+      box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
+    }
+    .message-bot {
+      background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-b from-pink-50 to-purple-50 min-h-screen">
+  <div id="root" class="min-h-screen flex items-center justify-center p-6"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function LunaApp() {
+      const [activeTab, setActiveTab] = useState('chat');
+      const [messages, setMessages] = useState([]);
+      const [input, setInput] = useState('');
+      const [isLoading, setIsLoading] = useState(false);
+      const [userName, setUserName] = useState('');
+      const [showNameModal, setShowNameModal] = useState(false);
+      const [selectedSymptoms, setSelectedSymptoms] = useState([]);
+      const [showSymptoms, setShowSymptoms] = useState(true);
+
+      //personaliza a conversa
+      useEffect(() => {
+        const savedName = localStorage.getItem('lunaUserName');
+        if (savedName) {
+          setUserName(savedName); //salva o nome do usuário temporariamente no estado do React
+          setMessages([{
+            type: 'bot',
+            text: `Olá, ${savedName}! 🌙 Como você está se sentindo hoje?`,
+            time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          }]);
+        } else {
+          setMessages([{
+            type: 'bot',
+            text: 'Olá! Sou a Luna 🌙 Sua assistente do ciclo menstrual. Como posso te ajudar hoje?',
+            time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          }]);
+          setTimeout(() => setShowNameModal(true), 2000);
+        }
+      }, []);
+
+      const clearChat = () => {
+  setMessages([{
+    type: 'bot',
+    text: `Olá${userName ? ', ' + userName : ''}! 🌙 Como você está se sentindo hoje?`,
+    time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  }]);
+  setShowSymptoms(true);
+  setSelectedSymptoms([]);
+};
+
+      const saveName = (name) => {
+        setUserName(name);
+        localStorage.setItem('lunaUserName', name); //salva no navegador pra quando o usuário sair da sessão fique guardado
+        setShowNameModal(false);
+        setMessages(prev => [...prev, {
+          type: 'bot',
+          text: `Prazer em te conhecer, ${name}! 😊 Agora posso te ajudar de forma mais personalizada.`, //responde o usuário com o nome declarado
+          time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        }]);
+      };
+
+      //atualiza o estado dos sintomas pré-definidos no front quando o usuário clica no botão 
+      const toggleSymptom = (symptom) => {
+        setSelectedSymptoms(prev => prev.includes(symptom) ? prev.filter(s => s !== symptom) : [...prev, symptom]);
+      };
+
+      //quando o usuário envia os sintomask, é criado uma mensagem para ser enviado ao back
+      const sendSymptoms = () => {
+        if (selectedSymptoms.length === 0) return;
+        const message = selectedSymptoms.length === 1 ? selectedSymptoms[0] : `Estou sentindo: ${selectedSymptoms.join(', ')}`;
+        sendQuickMessage(message);
+        setSelectedSymptoms([]);
+        setShowSymptoms(false);
+      };
+
+      const sendQuickMessage = async (message) => {
+        if (isLoading) return;
+       
+
+        //envia mensagem do usuário para o back, depois de mostrar na tela para a visualização do usuário // funciona para as mensagens digitadas também
+        setMessages(prev => [...prev, {
+          type: 'user', //declara se é bot ou user para estilizar a mensagem 
+          text: message,
+          time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        }]);
+        setIsLoading(true);
+
+        try {
+          const response = await fetch('/api/chat', { //envia a mensagem para a API e recebe a resposta do bot
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, symptoms: selectedSymptoms, userName })
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Erro de rede ou no servidor.' }));
+            throw new Error(errorData.error || 'Erro desconhecido');
+          }
+
+          const data = await response.json();
+          const botResponse = data.reply;
+          
+          //resposta do back-end e registro
+          setMessages(prev => [...prev, {
+            type: 'bot',
+            text: botResponse,
+            time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          }]);
+        } catch (error) {
+          console.error('Erro:', error);
+          setMessages(prev => [...prev, {
+            type: 'bot',
+            text: `🌙 Desculpe, ${error.message || 'ocorreu um erro interno'}. Tente novamente! 💕`,
+            time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          }]);
+        }
+
+        setIsLoading(false);
+      };
+
+      function CalendarTab() {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [cycleData, setCycleData] = useState(() => {
+    const saved = localStorage.getItem('lunaCycleData');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  const saveCycleData = (data) => {
+    setCycleData(data);
+    localStorage.setItem('lunaCycleData', JSON.stringify(data)); // permite marcar a menstruação,periodo fertil e etc no calendario// salva automaticamente os dados do ciclo
+  };
+
+  const getDaysInMonth = (date) => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (date) => {
+    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  };
+
+  const formatDateKey = (date) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+
+  const toggleDay = (day, type) => {
+    const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+    const dateKey = formatDateKey(date);
+    
+    const newData = { ...cycleData };
+    if (!newData[dateKey]) {
+      newData[dateKey] = {};
+    }
+    
+    newData[dateKey][type] = !newData[dateKey][type];
+    
+    if (!newData[dateKey][type]) {
+      delete newData[dateKey][type];
+    }
+    
+    if (Object.keys(newData[dateKey]).length === 0) {
+      delete newData[dateKey];
+    }
+    
+    saveCycleData(newData);
+  };
+
+  const getDayInfo = (day) => {
+    const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+    const dateKey = formatDateKey(date);
+    return cycleData[dateKey] || {};
+  };
+
+  const navigateMonth = (direction) => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setMonth(prev.getMonth() + direction);
+      return newDate;
+    });
+  };
+
+  const daysInMonth = getDaysInMonth(currentDate);
+  const firstDay = getFirstDayOfMonth(currentDate);
+  const monthNames = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+
+  return (
+    <div className="p-6">
+      <div className="max-w-4xl mx-auto">
+        {/* Calendar Header */}
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={() => navigateMonth(-1)}
+            className="p-2 rounded-full bg-pink-100 hover:bg-pink-200 text-pink-600 transition-colors"
+          >
+            ←
+          </button>
+          <h2 className="text-2xl font-bold text-gray-800">
+            {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
+          </h2>
+          <button
+            onClick={() => navigateMonth(1)}
+            className="p-2 rounded-full bg-pink-100 hover:bg-pink-200 text-pink-600 transition-colors"
+          >
+            →
+          </button>
+        </div>
+
+        {/* Legend */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-red-500 rounded-full"></div>
+            <span className="text-sm">Menstruação</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-pink-400 rounded-full"></div>
+            <span className="text-sm">Período Fértil</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-yellow-400 rounded-full"></div>
+            <span className="text-sm">TPM</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-blue-400 rounded-full"></div>
+            <span className="text-sm">Sintomas</span>
+          </div>
+        </div>
+
+        {/* Calendar Grid */}
+        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+          {/* Days of week header */}
+          <div className="grid grid-cols-7 bg-gray-100">
+            {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(day => (
+              <div key={day} className="p-3 text-center font-medium text-gray-600 text-sm">
+                {day}
+              </div>
+            ))}
+          </div>
+
+          {/* Calendar days */}
+          <div className="grid grid-cols-7">
+            {/* Empty cells for days before month starts */}
+            {Array.from({ length: firstDay }, (_, i) => (
+              <div key={`empty-${i}`} className="h-20 border-b border-r border-gray-100"></div>
+            ))}
+
+            {/* Days of the month */}
+            {Array.from({ length: daysInMonth }, (_, i) => {
+              const day = i + 1;
+              const dayInfo = getDayInfo(day);
+              const isToday = new Date().toDateString() === new Date(currentDate.getFullYear(), currentDate.getMonth(), day).toDateString();
+
+              return (
+                <div key={day} className="h-20 border-b border-r border-gray-100 p-1 relative group hover:bg-gray-50">
+                  <div className={`text-sm font-medium mb-1 ${isToday ? 'text-pink-600 font-bold' : 'text-gray-700'}`}>
+                    {day}
+                  </div>
+                  
+                  {/* Day markers */}
+                  <div className="flex flex-wrap gap-1">
+                    {dayInfo.menstruation && <div className="w-2 h-2 bg-red-500 rounded-full"></div>}
+                    {dayInfo.fertile && <div className="w-2 h-2 bg-pink-400 rounded-full"></div>}
+                    {dayInfo.pms && <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>}
+                    {dayInfo.symptoms && <div className="w-2 h-2 bg-blue-400 rounded-full"></div>}
+                  </div>
+
+                  {/* Hover menu */}
+                  <div className="absolute top-full left-0 z-10 bg-white border rounded-lg shadow-lg p-2 hidden group-hover:block min-w-48">
+                    <div className="text-xs font-medium mb-2">Dia {day}</div>
+                    <div className="space-y-1">
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!dayInfo.menstruation}
+                          onChange={() => toggleDay(day, 'menstruation')}
+                          className="w-3 h-3 text-red-500"
+                        />
+                        <span>Menstruação</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!dayInfo.fertile}
+                          onChange={() => toggleDay(day, 'fertile')}
+                          className="w-3 h-3 text-pink-400"
+                        />
+                        <span>Período Fértil</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!dayInfo.pms}
+                          onChange={() => toggleDay(day, 'pms')}
+                          className="w-3 h-3 text-yellow-400"
+                        />
+                        <span>TPM</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!dayInfo.symptoms}
+                          onChange={() => toggleDay(day, 'symptoms')}
+                          className="w-3 h-3 text-blue-400"
+                        />
+                        <span>Sintomas</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Instructions */}
+        <div className="mt-4 p-4 bg-pink-50 rounded-lg">
+          <p className="text-sm text-pink-800">
+            💡 <strong>Como usar:</strong> Passe o mouse sobre qualquer dia do calendário para marcar menstruação, período fértil, TPM ou sintomas. Seus dados são salvos automaticamente!
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+      const sendMessage = (e) => {
+        e.preventDefault();
+        if (!input.trim() || isLoading) return;
+        const userMessage = input.trim();
+        setInput('');
+        sendQuickMessage(userMessage);
+        setShowSymptoms(false);
+      };
+
+      const handleKeyPress = (e) => {
+        if (e.key === 'Enter' && selectedSymptoms.length > 0) {
+          e.preventDefault();
+          sendSymptoms();
+        }
+      };
+
+      const questions = [
+        "Como aliviar cólicas naturalmente? 🌿",
+        "Dicas para lidar com TPM 💆‍♀️",
+        "Quando devo me preocupar? ⚠️",
+        "Alimentação durante o ciclo 🥗",
+        "Exercícios recomendados 🏃‍♀️",
+        "Como calcular período fértil? 📊"
+      ];
+
+      return (
+        <div className="w-full max-w-6xl bg-white/90 backdrop-blur-md rounded-2xl shadow-xl overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-pink-500 to-purple-600 p-6 text-white">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                <span className="text-2xl">🌙</span>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold">Luna</h1>
+                <p className="text-pink-100">Sua assistente do ciclo menstrual</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex border-b">
+            <button
+              onClick={() => setActiveTab('calendar')}
+              className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+                activeTab === 'calendar'
+                  ? 'bg-pink-100 text-pink-600 border-b-2 border-pink-500'
+                  : 'text-gray-600 hover:text-pink-600'
+              }`}
+            >
+              📅 Calendário
+            </button>
+            <button
+              onClick={() => setActiveTab('chat')}
+              className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+                activeTab === 'chat'
+                  ? 'bg-pink-100 text-pink-600 border-b-2 border-pink-500'
+                  : 'text-gray-600 hover:text-pink-600'
+              }`}
+            >
+              💬 Chat com Luna
+            </button>
+            {/* Botão de alterar nome */}
+ <button
+  onClick={() => setShowNameModal(true)}
+  className="ml-2 px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-full text-sm transition-colors"
+>
+  Alterar nome
+</button>
+
+          </div>
+
+
+
+          {/* Calendar Tab */}
+          {activeTab === 'calendar' && (
+          <CalendarTab />   
+          )}
+
+
+
+          {/* Chat Tab */}
+          {activeTab === 'chat' && (
+            <div className="flex">
+              {/* Chat Area */}
+              <div className="flex-1 flex flex-col h-96 min-h-[50vh] md:min-h-0">
+                {/* Chat Header */}
+<div className="bg-gradient-to-r from-pink-100 to-purple-100 p-4 border-b">
+  <div className="flex items-center justify-between">
+    <div className="flex items-center gap-3">
+      <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full flex items-center justify-center">
+        <span className="text-white text-sm">🌙</span>
+      </div>
+      <div>
+        <h3 className="font-semibold text-gray-800">Luna</h3>
+        <p className="text-xs text-green-600 flex items-center gap-1">
+          <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+          Online
+        </p>
+      </div>
+    </div>
+    <button
+      onClick={clearChat}
+      className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+      title="Limpar conversa"
+    >
+      🗑️
+    </button>
+  </div>
+</div>
+
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  {messages.map((msg, index) => (
+                    <div key={index} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl ${
+                        msg.type === 'user'
+                          ? 'message-user text-white'
+                          : 'message-bot text-gray-800 border'
+                      }`}>
+                        <div>{msg.text}</div>
+                        <div className={`text-xs mt-1 ${msg.type === 'user' ? 'text-pink-100' : 'text-gray-500'}`}>
+                          {msg.time}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {isLoading && (
+                    <div className="flex justify-start">
+                      <div className="message-bot px-4 py-3 rounded-2xl border">
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce"></div>
+                          <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                          <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                     
+                {/* Input Area */}
+                <div className="p-2 border-t bg-gray-50" onKeyDown={handleKeyPress}>
+                  {/* Symptom Buttons */}
+                  {showSymptoms && (
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm text-gray-600">Como você está se sentindo? (Selecione um ou mais)</p>
+                        {selectedSymptoms.length > 0 && (
+                          <button
+                            onClick={sendSymptoms}
+                            className="px-3 py-1 bg-pink-500 text-white rounded-full text-xs hover:bg-pink-600 transition-colors"
+                          >
+                            Enviar ({selectedSymptoms.length})
+                          </button>
+                        )}
+  
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { text: "Cólica forte", emoji: "😣", color: "red" },
+                          { text: "Dor nos seios", emoji: "🤱", color: "pink" },
+                          { text: "Dor de cabeça", emoji: "🤕", color: "purple" },
+                          { text: "Inchaço", emoji: "🎈", color: "blue" },
+                          { text: "Irritação", emoji: "😤", color: "orange" },
+                          { text: "Vontade de doce", emoji: "🍫", color: "yellow" }
+                        ].map((symptom, index) => {
+                          const isSelected = selectedSymptoms.includes(symptom.text);
+                          return (
+                            <button
+                              key={index}
+                              onClick={() => toggleSymptom(symptom.text)}
+                              disabled={isLoading}
+                              className={`px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                                isSelected 
+                                  ? `bg-${symptom.color}-500 text-white shadow-lg transform scale-105`
+                                  : `bg-${symptom.color}-100 text-${symptom.color}-700 hover:bg-${symptom.color}-200`
+                              } disabled:opacity-50`}
+                            >
+                              {symptom.emoji} {symptom.text}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {selectedSymptoms.length > 0 && (
+                        <p className="text-xs text-gray-500 mt-2 text-center">
+                          Pressione Enter ou clique em "Enviar" para compartilhar seus sintomas
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+
+                  {/* Text Input */}
+                  <form onSubmit={sendMessage}>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder={`Digite sua pergunta${userName ? ', ' + userName : ''}...`}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white"
+                        disabled={isLoading}
+                      />
+                      <button
+                        type="submit"
+                        disabled={isLoading || !input.trim()}
+                        className="px-6 py-2 bg-gradient-to-r from-pink-500 to-purple-600 text-white rounded-full hover:from-pink-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      >
+                        Enviar
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Show/Hide Symptoms Button */}
+                  {!showSymptoms && (
+                    <div className="mt-2 text-center">
+                      <button
+                        onClick={() => setShowSymptoms(true)}
+                        className="text-sm text-pink-600 hover:text-pink-700 underline"
+                      >
+                        Mostrar sintomas novamente
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Sidebar with Frequent Questions */}
+              <div className="w-64 bg-gray-50 border-l p-4">
+                <h3 className="font-semibold text-gray-800 mb-3">💡 Perguntas Frequentes</h3>
+                <div className="space-y-2">
+                  {questions.map((question, index) => (
+                    <button
+                      key={index}
+                      onClick={() => sendQuickMessage(question)}
+                      className="w-full p-3 bg-white border border-gray-200 rounded-lg text-left text-sm hover:bg-pink-50 hover:border-pink-200 transition-all duration-200"
+                    >
+                      {question}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Name Modal */}
+          {showNameModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4">
+                <h3 className="text-lg font-semibold mb-4 text-center">
+                  Como posso te chamar? 😊
+                </h3>
+                <p className="text-gray-600 text-sm mb-4 text-center">
+                  Assim posso personalizar nossa conversa!
+                </p>
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = e.target.name.value.trim();
+                  if (name) saveName(name);
+                }}>
+                  <input
+                    type="text"
+                    name="name"
+                    placeholder="Digite seu nome..."
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 mb-4"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowNameModal(false)}
+                      className="flex-1 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
+                    >
+                      Pular
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-2 bg-gradient-to-r from-pink-500 to-purple-600 text-white rounded-lg hover:from-pink-600 hover:to-purple-700 transition-colors"
+                    >
+                      Salvar
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.render(<LunaApp />, document.getElementById('root'));
+  </script>
+</body>
+</html>
